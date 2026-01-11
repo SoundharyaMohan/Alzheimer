@@ -1,0 +1,79 @@
+!pip install -q datasets
+import tensorflow as tf
+import numpy as np
+from datasets import load_dataset
+dataset = load_dataset("Falah/Alzheimer_MRI")
+
+print(dataset)
+IMG_SIZE = 224
+NUM_CLASSES = 4
+BATCH_SIZE = 32
+EPOCHS = 15
+def data_generator(split):
+    for item in dataset[split]:
+        img = item["image"].resize((IMG_SIZE, IMG_SIZE))
+        img = np.array(img)
+
+        # Convert grayscale → RGB
+        if len(img.shape) == 2:
+            img = np.stack([img] * 3, axis=-1)
+
+        img = img.astype("float32") / 255.0
+        label = tf.keras.utils.to_categorical(item["label"], NUM_CLASSES)
+
+        yield img, label
+train_ds = tf.data.Dataset.from_generator(
+    lambda: data_generator("train"),
+    output_signature=(
+        tf.TensorSpec(shape=(224,224,3), dtype=tf.float32),
+        tf.TensorSpec(shape=(NUM_CLASSES,), dtype=tf.float32)
+    )
+)
+
+test_ds = tf.data.Dataset.from_generator(
+    lambda: data_generator("test"),
+    output_signature=(
+        tf.TensorSpec(shape=(224,224,3), dtype=tf.float32),
+        tf.TensorSpec(shape=(NUM_CLASSES,), dtype=tf.float32)
+    )
+)
+
+train_ds = train_ds.shuffle(1000).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+test_ds = test_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+model = tf.keras.Sequential([
+    tf.keras.layers.Conv2D(32, (3,3), activation='relu', input_shape=(224,224,3)),
+    tf.keras.layers.MaxPooling2D(2,2),
+
+    tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
+    tf.keras.layers.MaxPooling2D(2,2),
+
+    tf.keras.layers.Conv2D(128, (3,3), activation='relu'),
+    tf.keras.layers.MaxPooling2D(2,2),
+
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dropout(0.5),
+    tf.keras.layers.Dense(NUM_CLASSES, activation='softmax')
+])
+model.compile(
+    optimizer='adam',
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+model.summary()
+history = model.fit(
+    train_ds,
+    validation_data=test_ds,
+    epochs=EPOCHS
+)
+test_loss, test_acc = model.evaluate(test_ds)
+print(f"Test Accuracy: {test_acc:.4f}")
+label_names = dataset["train"].features["label"].names
+print(label_names)
+# --------------------------------------------------
+# SAVE MRI MODEL
+# --------------------------------------------------
+model.save("alzheimers_mri_stage2_model.keras")
+
+print("✅ MRI Stage-2 model saved successfully")
