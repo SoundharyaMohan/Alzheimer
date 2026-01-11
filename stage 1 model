@@ -1,0 +1,100 @@
+pip install catboost shap joblib
+
+
+import pandas as pd
+import numpy as np
+
+from catboost import CatBoostClassifier
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import roc_auc_score
+df = pd.read_csv("/content/alzheimers_stage1_cleaned_dataset.csv")
+
+X = df.drop(columns=["Alzheimer’s Diagnosis"])
+y = df["Alzheimer’s Diagnosis"]
+cat_features = X.select_dtypes(include=["object", "category"]).columns.tolist()
+cat_feature_indices = [X.columns.get_loc(col) for col in cat_features]
+
+print("Categorical features:", cat_features)
+def get_catboost_model():
+    return CatBoostClassifier(
+        iterations=800,
+        learning_rate=0.03,
+        depth=6,
+        loss_function="Logloss",
+        eval_metric="AUC",
+        auto_class_weights="Balanced",
+        l2_leaf_reg=6,
+        random_seed=42,
+        verbose=False
+    )
+def cv_auc(X, y, cat_feature_indices):
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    aucs = []
+
+    for fold, (train_idx, test_idx) in enumerate(skf.split(X, y), 1):
+        X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
+        y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
+
+        model = get_catboost_model()
+
+        model.fit(
+            X_tr,
+            y_tr,
+            cat_features=cat_feature_indices
+        )
+
+        proba = model.predict_proba(X_te)[:, 1]
+        auc = roc_auc_score(y_te, proba)
+        aucs.append(auc)
+
+        print(f"Fold {fold} ROC-AUC: {auc:.4f}")
+
+    return np.mean(aucs), np.std(aucs)
+mean_auc, std_auc = cv_auc(X, y, cat_feature_indices)
+
+print("\n==============================")
+print(f"Mean ROC-AUC: {mean_auc:.4f}")
+print(f"Std ROC-AUC : {std_auc:.4f}")
+print("==============================")
+
+
+import pandas as pd
+from catboost import CatBoostClassifier
+
+# Load data
+df = pd.read_csv("/content/alzheimers_stage1_cleaned_dataset.csv")
+
+X = df.drop(columns=["Alzheimer’s Diagnosis"])
+y = df["Alzheimer’s Diagnosis"]
+
+# Identify categorical features EXACTLY as training
+cat_features = X.select_dtypes(include=["object", "category"]).columns.tolist()
+cat_feature_indices = [X.columns.get_loc(col) for col in cat_features]
+
+print("Categorical features:", cat_features)
+
+# Final model (same hyperparams)
+final_model = CatBoostClassifier(
+    iterations=800,
+    learning_rate=0.03,
+    depth=6,
+    loss_function="Logloss",
+    eval_metric="AUC",
+    auto_class_weights="Balanced",
+    l2_leaf_reg=6,
+    random_seed=42,
+    verbose=False
+)
+
+# Train on FULL dataset
+final_model.fit(
+    X,
+    y,
+    cat_features=cat_feature_indices
+)
+
+# Save model
+final_model.save_model("alzheimers_catboost_model.cbm")
+
+print("✅ Model saved as alzheimers_catboost_model.cbm")
+
